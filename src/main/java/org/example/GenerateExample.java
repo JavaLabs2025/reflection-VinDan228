@@ -15,7 +15,7 @@ public class GenerateExample {
         System.out.println("======== Test of Generator ========\n");
         testGeneration(gen, Example.class, "1. Class Example");
         testGeneration(gen, Product.class, "2. Class Product");
-        testGeneration(gen, Shape.class, "3. Interface Shape"); // Должен найти либо Rectangle, либо Triangle
+        testGeneration(gen, Shape.class, "3. Interface Shape"); // Должен найти класс либо Rectangle, либо Triangle
         testGeneration(gen, Rectangle.class, "4. Class Rectangle");
         testGeneration(gen, Triangle.class, "5. Class Triangle");
         testGeneration(gen, BinaryTreeNode.class, "6. Recursive struture BinaryTreeNode");
@@ -79,21 +79,19 @@ public class GenerateExample {
         
         for (Method method : methods) {
             if (method.getParameterCount() == 0 &&
-                (method.getName().startsWith("get") || 
-                 method.getName().equals("getArea") || 
-                 method.getName().equals("getPerimeter") ||
-                 method.getName().equals("toString"))) {
-                
+                    (method.getName().startsWith("get") ||
+                     method.getName().startsWith("Get") ||
+                     method.getName().equals("toString"))
+            ) {
                 method.setAccessible(true);
                 try {
                     Object result = method.invoke(obj);
                     String resultStr = formatValue(result);
                     System.out.println("- " + method.getName() + " -> " + resultStr);
-                    hasMethods = true;
                 } catch (Exception e) {
                     System.out.println("- " + method.getName() + " -> error: " + e.getMessage());
-                    hasMethods = true;
                 }
+                hasMethods = true;
             }
         }
 
@@ -125,33 +123,6 @@ public class GenerateExample {
         if (value.getClass().isArray()) {
             return value.getClass().getSimpleName() + " array";
         }
-        
-        if (!isPrimitiveOrWrapper(value.getClass())) {
-            return value.getClass().getSimpleName() + "@" + 
-                   Integer.toHexString(System.identityHashCode(value));
-        }
-        
         return value.toString();
-    }
-    
-    private static boolean isPrimitiveOrWrapper(Class<?> c) {
-        return c.isPrimitive() || 
-               c == String.class ||
-               c == Integer.class ||
-               c == int.class ||
-               c == Double.class ||
-               c == double.class ||
-               c == Long.class ||
-               c == long.class ||
-               c == Float.class ||
-               c == float.class ||
-               c == Byte.class ||
-               c == byte.class ||
-               c == Short.class ||
-               c == short.class ||
-               c == Character.class ||
-               c == char.class ||
-               c == Boolean.class ||
-               c == boolean.class;
     }
 }

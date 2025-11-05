@@ -25,14 +25,21 @@ public class Generator {
     public static final char SLASH = '/';
     public static final String BLANK = "";
     public static final String BINARY_TREE_NODE = "BinaryTreeNode";
+    public static final String FILE = "file";
+    public static final String JAR = "jar";
+    public static final String FILE_POINTED = "file:";
+    public static final String $ = "$";
     private final Random random = new Random();
 
     /**
      * "Маршрутизирует" или самостоятельно проводит генерацию заданного значения/объекта/интерфейса
      */
-    public Object generateValueOfType(Class<?> c) throws InvocationTargetException, InstantiationException, IllegalAccessException, IOException, URISyntaxException, ClassNotFoundException {
+    public Object generateValueOfType(Class<?> c)
+            throws InvocationTargetException, InstantiationException, IllegalAccessException,
+            IOException, URISyntaxException, ClassNotFoundException
+    {
         if (c.isInterface()) {
-            return generateForInterface(c);
+            return generateInterface(c);
         }
 
         if (c == String.class) {
@@ -85,7 +92,10 @@ public class Generator {
     /**
      * Генерирует реализацию интерфейса
      */
-    private Object generateForInterface(Class<?> interfaceClass) throws InvocationTargetException, InstantiationException, IllegalAccessException, IOException, URISyntaxException, ClassNotFoundException {
+    private Object generateInterface(Class<?> interfaceClass)
+            throws InvocationTargetException, InstantiationException, IllegalAccessException,
+            IOException, URISyntaxException, ClassNotFoundException
+    {
         String packageName = interfaceClass.getPackage().getName();
         List<Class<?>> implementations = findImplementations(interfaceClass, packageName);
 
@@ -98,10 +108,65 @@ public class Generator {
     }
 
     /**
+     * Генерирует объекты классов
+     */
+    private Object generateObject(Class<?> c)
+            throws InvocationTargetException, InstantiationException, IllegalAccessException,
+            IOException, URISyntaxException, ClassNotFoundException
+    {
+        Constructor<?>[] constructors = c.getDeclaredConstructors();
+
+        if (constructors.length == 0) {
+            throw new IllegalArgumentException("no constructors for class " + c.getName());
+        }
+
+        Constructor<?> selectedConstructor = constructors[random.nextInt(constructors.length)];
+        selectedConstructor.setAccessible(true);
+
+        Class<?>[] paramTypes = selectedConstructor.getParameterTypes();
+        Object[] params = new Object[paramTypes.length];
+
+        for (int i = 0; i < paramTypes.length; i++) {
+            Class<?> paramType = paramTypes[i];
+
+            if (paramType == List.class) {
+                Type genericType = selectedConstructor.getGenericParameterTypes()[i];
+
+                if (genericType instanceof ParameterizedType pt) {
+                    Type[] actualTypes = pt.getActualTypeArguments();
+
+                    if (actualTypes.length > 0 && actualTypes[0] instanceof Class<?> elementType) {
+                        List<Object> list = new ArrayList<>();
+
+                        int listSize = random.nextInt(3) + 1;
+
+                        for (int j = 0; j < listSize; j++) {
+                            list.add(generateValueOfType(elementType));
+                        }
+                        params[i] = list;
+                        continue;
+                    }
+                }
+            }
+
+            if ((paramType == Integer.class ||
+                    paramType.getName().contains(BINARY_TREE_NODE)) && random.nextDouble() < 0.3) {
+                params[i] = null;
+            } else {
+                params[i] = generateValueOfType(paramType);
+            }
+        }
+
+        return selectedConstructor.newInstance(params);
+    }
+
+    /**
      * Универсальный метод для поиска всех классов, реализующих интерфейс.
      * Сканирует classpath на предмет классов в пакете
      */
-    private List<Class<?>> findImplementations(Class<?> interfaceClass, String packageName) throws IOException, URISyntaxException, ClassNotFoundException {
+    private List<Class<?>> findImplementations(Class<?> interfaceClass, String packageName)
+            throws IOException, URISyntaxException, ClassNotFoundException
+    {
         List<Class<?>> implementations = new ArrayList<>();
         String packagePath = packageName.replace(POINT, SLASH);
 
@@ -116,9 +181,9 @@ public class Generator {
             URL resource = resources.nextElement();
             String protocol = resource.getProtocol();
 
-            if ("file".equals(protocol)) {
-                findClassesInDirectory(resource, packageName, interfaceClass, implementations);
-            } else if ("jar".equals(protocol)) {
+            if (FILE.equals(protocol)) {
+                findClassesInDir(resource, packageName, interfaceClass, implementations);
+            } else if (JAR.equals(protocol)) {
                 findClassesInJar(resource, packageName, interfaceClass, implementations);
             }
         }
@@ -127,9 +192,11 @@ public class Generator {
     }
 
     /**
-     * Сканирует директорию и находит все классы в пакете
+     * Сканирует репозиторий (типа как мы видим его в IDE) и ищет все классы в пакете
      */
-    private void findClassesInDirectory(URL resource, String packageName, Class<?> interfaceClass, List<Class<?>> implementations) throws URISyntaxException, IOException {
+    private void findClassesInDir(URL resource, String packageName, Class<?> interfaceClass, List<Class<?>> implementations)
+            throws URISyntaxException, IOException
+    {
         Path directory = Paths.get(resource.toURI());
         if (Files.exists(directory) && Files.isDirectory(directory)) {
             Files.walk(directory)
@@ -139,7 +206,7 @@ public class Generator {
                     String className = packageName + POINT +
                         directory.relativize(path).toString().replace(SLASH, POINT).replace(CLASS, BLANK);
                     try {
-                        checkAndAddClass(className, interfaceClass, implementations);
+                        checkClasses(className, interfaceClass, implementations);
                     } catch (ClassNotFoundException e) {
                         throw new RuntimeException(e);
                     }
@@ -148,9 +215,11 @@ public class Generator {
     }
 
     /**
-     * Сканирует JAR'ник и находит все классы в пакете
+     * Сканирует JAR'ник и ищет все классы в пакете
      */
-    private void findClassesInJar(URL resource, String packageName, Class<?> interfaceClass, List<Class<?>> implementations) throws ClassNotFoundException {
+    private void findClassesInJar(URL resource, String packageName, Class<?> interfaceClass, List<Class<?>> implementations)
+            throws ClassNotFoundException
+    {
         String packagePath = packageName.replace(POINT, SLASH);
         String resourcePath = resource.getPath();
         
@@ -159,19 +228,20 @@ public class Generator {
             return;
         }
         
-        String jarPath = resourcePath.substring(resourcePath.startsWith("file:") ? 5 : 0, jarIndex);
+        String jarPath = resourcePath.substring(resourcePath.startsWith(FILE_POINTED) ? 5 : 0, jarIndex);
         jarPath = java.net.URLDecoder.decode(jarPath, StandardCharsets.UTF_8);
         
         try (JarFile jar = new JarFile(jarPath)) {
             Enumeration<JarEntry> entries = jar.entries();
             
             while (entries.hasMoreElements()) {
+
                 JarEntry entry = entries.nextElement();
                 String entryName = entry.getName();
                 
-                if (entryName.startsWith(packagePath) && entryName.endsWith(CLASS) && !entryName.contains("$")) {
+                if (entryName.startsWith(packagePath) && entryName.endsWith(CLASS) && !entryName.contains($)) {
                     String className = entryName.replace(SLASH, POINT).replace(CLASS, BLANK);
-                    checkAndAddClass(className, interfaceClass, implementations);
+                    checkClasses(className, interfaceClass, implementations);
                 }
             }
         } catch (IOException _) {}
@@ -180,57 +250,12 @@ public class Generator {
     /**
      * Проверяет класс и добавляет его в список, если он норм
      */
-    private void checkAndAddClass(String className, Class<?> interfaceClass, List<Class<?>> implementations) throws ClassNotFoundException {
+    private void checkClasses(String className, Class<?> interfaceClass, List<Class<?>> implementations)
+            throws ClassNotFoundException
+    {
         Class<?> c = Class.forName(className);
         if (!c.isInterface() && interfaceClass.isAssignableFrom(c) && c.isAnnotationPresent(Generatable.class)) {
             implementations.add(c);
         }
-    }
-
-    private Object generateObject(Class<?> c) throws InvocationTargetException, InstantiationException, IllegalAccessException, IOException, URISyntaxException, ClassNotFoundException {
-        Constructor<?>[] constructors = c.getDeclaredConstructors();
-        
-        if (constructors.length == 0) {
-            throw new IllegalArgumentException("no constructors for class " + c.getName());
-        }
-
-        Constructor<?> selectedConstructor = constructors[random.nextInt(constructors.length)];
-        selectedConstructor.setAccessible(true);
-
-        Class<?>[] paramTypes = selectedConstructor.getParameterTypes();
-        Object[] params = new Object[paramTypes.length];
-        
-        for (int i = 0; i < paramTypes.length; i++) {
-            Class<?> paramType = paramTypes[i];
-            
-            if (paramType == List.class) {
-                Type genericType = selectedConstructor.getGenericParameterTypes()[i];
-                
-                // instanceof предложила idea, не я)
-                if (genericType instanceof ParameterizedType pt) {
-                    Type[] actualTypes = pt.getActualTypeArguments();
-                    
-                    if (actualTypes.length > 0 && actualTypes[0] instanceof Class<?> elementType) {
-                        List<Object> list = new ArrayList<>();
-                        
-                        int listSize = random.nextInt(3) + 1;
-                        
-                        for (int j = 0; j < listSize; j++) {
-                            list.add(generateValueOfType(elementType));
-                        }
-                        params[i] = list;
-                        continue;
-                    }
-                }
-            }
-            
-            if ((paramType == Integer.class || paramType.getName().contains(BINARY_TREE_NODE)) && random.nextDouble() < 0.3) {
-                params[i] = null;
-            } else {
-                params[i] = generateValueOfType(paramType);
-            }
-        }
-
-        return selectedConstructor.newInstance(params);
     }
 }
