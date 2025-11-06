@@ -14,6 +14,11 @@ public class BinaryTreeNode {
         this.right = right;
     }
 
+    @Override
+    public String toString() {
+        return "BinaryTreeNode: left - " + left + "; right - " + right;
+    }
+
     public Integer getData() {
         return data;
     }

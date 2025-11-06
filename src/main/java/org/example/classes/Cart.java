@@ -16,6 +16,11 @@ public class Cart {
         return items;
     }
 
+    @Override
+    public String toString() {
+        return "List of items: " + items;
+    }
+
     public void setItems(List<Product> items) {
         this.items = items;
     }

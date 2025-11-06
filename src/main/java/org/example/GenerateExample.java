@@ -80,9 +80,8 @@ public class GenerateExample {
         for (Method method : methods) {
             if (method.getParameterCount() == 0 &&
                     (method.getName().startsWith("get") ||
-                     method.getName().startsWith("Get") ||
-                     method.getName().equals("toString"))
-            ) {
+                     method.getName().startsWith("Get")))
+            {
                 method.setAccessible(true);
                 try {
                     Object result = method.invoke(obj);

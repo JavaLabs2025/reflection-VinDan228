@@ -24,4 +24,9 @@ public class Triangle implements Shape {
     public double getPerimeter() {
         return sideA + sideB + sideC;
     }
+
+    @Override
+    public String toString() {
+        return "Triangle sideA - " + sideA + " and sideB - " + sideB + " and sideC - " + sideC;
+    }
 }

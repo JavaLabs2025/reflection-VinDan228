@@ -45,7 +45,7 @@ public class Product {
 
     @Override
     public String toString() {
-        return super.toString();
+        return "Product price - " + price + " and product name - " + name;
     }
 
 }
