@@ -1,5 +1,8 @@
 package org.example.classes;
 
+import org.example.generator.Generatable;
+
+@Generatable
 public class BinaryTreeNode {
     private Integer data;
     private BinaryTreeNode left;
@@ -9,6 +12,11 @@ public class BinaryTreeNode {
         this.data = data;
         this.left = left;
         this.right = right;
+    }
+
+    @Override
+    public String toString() {
+        return "BinaryTreeNode: left - " + left + "; right - " + right;
     }
 
     public Integer getData() {
