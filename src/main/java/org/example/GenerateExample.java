@@ -29,7 +29,7 @@ public class GenerateExample {
         
         try {
             Object generated = gen.generateValueOfType(c);
-            printObjectInfo(generated);
+            printObjectInfo(gen, generated);
             System.out.println("\n\tGOOD EXODUS!\n");
         } catch (Throwable e) {
             e.printStackTrace();
@@ -37,7 +37,7 @@ public class GenerateExample {
         }
     }
     
-    private static void printObjectInfo(Object obj) {
+    private static void printObjectInfo(Generator gen, Object obj) {
         if (obj == null) {
             System.out.println("!Null object!");
             return;
@@ -72,9 +72,30 @@ public class GenerateExample {
                 } catch (IllegalAccessException _) {}
             }
         }
-        
-        System.out.println("Methods calls and results:");
+
+        System.out.println("Set methods calls with random values:");
         Method[] methods = c.getDeclaredMethods();
+        boolean hasSetters = false;
+        for (Method method : methods) {
+            if (method.getParameterCount() == 1 && (method.getName().startsWith("set") || method.getName().startsWith("Set"))) {
+                Class<?> paramType = method.getParameterTypes()[0];
+                method.setAccessible(true);
+                try {
+                    Object arg = gen.generateValueOfType(paramType);
+                    method.invoke(obj, arg);
+                    System.out.println("- " + method.getName() + "(" + formatValue(arg) + ")");
+                    hasSetters = true;
+                } catch (Throwable e) {
+                    System.out.println("- " + method.getName() + " -> error: " + e.getMessage());
+                    hasSetters = true;
+                }
+            }
+        }
+        if (!hasSetters) {
+            System.out.println("- !No setters!");
+        }
+        
+        System.out.println("Get methods calls and results:");
         boolean hasMethods = false;
         
         for (Method method : methods) {

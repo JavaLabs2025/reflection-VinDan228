@@ -1,22 +1,35 @@
 package org.example.generator;
 
 import java.io.IOException;
+import java.lang.reflect.Array;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.lang.reflect.WildcardType;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
+
+// выяснить как достаются типы ведь они затираются
+// потыкать сеттеры
+// попробовать нотейшн препроцессора (как у карима)
+// что если коллекции будут параметризированы как "? extends" или "? super"
 
 public class Generator {
     public static final String CLASS = ".class";
@@ -29,6 +42,7 @@ public class Generator {
     public static final String JAR = "jar";
     public static final String FILE_POINTED = "file:";
     public static final String $ = "$";
+    public static final int MAX_BINARY_TREE_DEPTH = 3;
     private final Random random = new Random();
 
     /**
@@ -36,7 +50,7 @@ public class Generator {
      */
     public Object generateValueOfType(Class<?> c)
             throws InvocationTargetException, InstantiationException, IllegalAccessException,
-            IOException, URISyntaxException, ClassNotFoundException
+            IOException, URISyntaxException, ClassNotFoundException, NoSuchMethodException
     {
         if (c.isInterface()) {
             return generateInterface(c);
@@ -70,10 +84,45 @@ public class Generator {
             return random.nextBoolean();
         }
 
+        if (c.getSimpleName().equals(BINARY_TREE_NODE)) {
+            return generateBinaryTreeNode(c, MAX_BINARY_TREE_DEPTH);
+        }
+
         if (!c.isAnnotationPresent(Generatable.class)) {
             throw new IllegalArgumentException("There is no @Generatable annotation in class " + c.getName());
         }
         return generateObject(c);
+    }
+
+    /**
+     * Генерирует дерево BinaryTreeNode ограниченной глубины.
+     */
+    private Object generateBinaryTreeNode(Class<?> nodeClass, int depth)
+            throws InvocationTargetException, InstantiationException, IllegalAccessException, NoSuchMethodException
+    {
+        Constructor<?> constructor = nodeClass.getDeclaredConstructor(Integer.class, nodeClass, nodeClass);
+        constructor.setAccessible(true);
+
+        Integer data;
+        if (random.nextBoolean()) {
+            data = null;
+        } else {
+            data = random.nextInt(1000);
+        }
+
+        Object left = null;
+        Object right = null;
+
+        if (depth > 0) {
+            if (random.nextBoolean()) {
+                left = generateBinaryTreeNode(nodeClass, depth - 1);
+            }
+            if (random.nextBoolean()) {
+                right = generateBinaryTreeNode(nodeClass, depth - 1);
+            }
+        }
+
+        return constructor.newInstance(data, left, right);
     }
 
     /**
@@ -94,8 +143,7 @@ public class Generator {
      */
     private Object generateInterface(Class<?> interfaceClass)
             throws InvocationTargetException, InstantiationException, IllegalAccessException,
-            IOException, URISyntaxException, ClassNotFoundException
-    {
+            IOException, URISyntaxException, ClassNotFoundException, NoSuchMethodException {
         String packageName = interfaceClass.getPackage().getName();
         List<Class<?>> implementations = findImplementations(interfaceClass, packageName);
 
@@ -112,8 +160,7 @@ public class Generator {
      */
     private Object generateObject(Class<?> c)
             throws InvocationTargetException, InstantiationException, IllegalAccessException,
-            IOException, URISyntaxException, ClassNotFoundException
-    {
+            IOException, URISyntaxException, ClassNotFoundException, NoSuchMethodException {
         Constructor<?>[] constructors = c.getDeclaredConstructors();
 
         if (constructors.length == 0) {
@@ -129,28 +176,82 @@ public class Generator {
         for (int i = 0; i < paramTypes.length; i++) {
             Class<?> paramType = paramTypes[i];
 
-            if (paramType == List.class) {
+            // массивы
+            if (paramType.isArray()) {
+                Class<?> componentType = paramType.getComponentType();
+                int length = random.nextInt(3) + 1;
+                Object array = Array.newInstance(componentType, length);
+                for (int j = 0; j < length; j++) {
+                    Array.set(array, j, generateValueOfType(componentType));
+                }
+                params[i] = array;
+                continue;
+            }
+
+            // List, Set и подобное
+            if (Collection.class.isAssignableFrom(paramType)) {
+                // generic-параметры стираются у объектов, но остаются в сигнатуре конструктора,
+                // поэтому достаём их через getGenericParameterTypes()
+                Type genericType = selectedConstructor.getGenericParameterTypes()[i];
+
+                // проверка на факт дженерика, чтобы не был простым типом как Integer или String
+                if (genericType instanceof ParameterizedType pt) {
+                    Type[] actualTypes = pt.getActualTypeArguments();
+
+                    if (actualTypes.length == 1) {
+
+                        Class<?> elementClass = getElementClass(actualTypes);
+
+                        if (elementClass != null) {
+                            Collection<Object> collection;
+                            if (Set.class.isAssignableFrom(paramType)) {
+                                collection = new HashSet<>();
+                            } else {
+                                collection = new ArrayList<>();
+                            }
+
+                            int size = random.nextInt(3) + 1;
+                            for (int j = 0; j < size; j++) {
+                                collection.add(generateValueOfType(elementClass));
+                            }
+                            params[i] = collection;
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // создаём простую HashMap и заполняем рандомными парами
+            if (Map.class.isAssignableFrom(paramType)) {
                 Type genericType = selectedConstructor.getGenericParameterTypes()[i];
 
                 if (genericType instanceof ParameterizedType pt) {
                     Type[] actualTypes = pt.getActualTypeArguments();
 
-                    if (actualTypes.length > 0 && actualTypes[0] instanceof Class<?> elementType) {
-                        List<Object> list = new ArrayList<>();
+                    if (actualTypes.length == 2) {
+                        Type keyType = actualTypes[0];
+                        Type valueType = actualTypes[1];
 
-                        int listSize = random.nextInt(3) + 1;
+                        Class<?> keyClass = resolveWildcardClass(keyType);
+                        Class<?> valueClass = resolveWildcardClass(valueType);
 
-                        for (int j = 0; j < listSize; j++) {
-                            list.add(generateValueOfType(elementType));
+                        if (keyClass != null && valueClass != null) {
+                            Map<Object, Object> map = new HashMap<>();
+                            int size = random.nextInt(3) + 1;
+                            for (int j = 0; j < size; j++) {
+                                Object key = generateValueOfType(keyClass);
+                                Object value = generateValueOfType(valueClass);
+                                map.put(key, value);
+                            }
+                            params[i] = map;
+                            continue;
                         }
-                        params[i] = list;
-                        continue;
                     }
                 }
             }
 
-            if ((paramType == Integer.class ||
-                    paramType.getName().contains(BINARY_TREE_NODE)) && random.nextDouble() < 0.3) {
+            // для остальных параметров, в том числе бинарное древо, рекурсивно вызываем генератор
+            if (paramType == Integer.class || paramType.getSimpleName().equals(BINARY_TREE_NODE) && random.nextDouble() < 0.3) {
                 params[i] = null;
             } else {
                 params[i] = generateValueOfType(paramType);
@@ -158,6 +259,39 @@ public class Generator {
         }
 
         return selectedConstructor.newInstance(params);
+    }
+
+    private static Class<?> getElementClass(Type[] actualTypes) {
+        Class<?> elementClass = null;
+        Type elementType = actualTypes[0];
+
+        if (elementType instanceof Class<?> ec) {
+            elementClass = ec;
+        } else if (elementType instanceof WildcardType wt) {
+            // поддерживаем ? extends T: берём верхнюю границу, если она класс, то есть T
+            Type[] upperBounds = wt.getUpperBounds();
+            if (upperBounds.length > 0 && upperBounds[0] instanceof Class<?> ec) {
+                elementClass = ec;
+            }
+            // для ? super T оставляем elementClass == null и не генерируем коллекцию
+        }
+        return elementClass;
+    }
+
+    /**
+     * Преобразует Type в Class, поддерживая wildcard (? extends T).
+     */
+    private Class<?> resolveWildcardClass(Type type) {
+        if (type instanceof Class<?> c) {
+            return c;
+        }
+        if (type instanceof WildcardType wt) {
+            Type[] upperBounds = wt.getUpperBounds();
+            if (upperBounds.length > 0 && upperBounds[0] instanceof Class<?> c) {
+                return c;
+            }
+        }
+        return null;
     }
 
     /**
@@ -229,7 +363,7 @@ public class Generator {
         }
         
         String jarPath = resourcePath.substring(resourcePath.startsWith(FILE_POINTED) ? 5 : 0, jarIndex);
-        jarPath = java.net.URLDecoder.decode(jarPath, StandardCharsets.UTF_8);
+        jarPath = URLDecoder.decode(jarPath, StandardCharsets.UTF_8);
         
         try (JarFile jar = new JarFile(jarPath)) {
             Enumeration<JarEntry> entries = jar.entries();
